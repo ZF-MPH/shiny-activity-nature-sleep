@@ -19,6 +19,26 @@ data <- data %>%
     FRPL = recode(FRPL, `0` = "Yes", `1` = "No", `2` = "I don't know")
   )
 
+# Calculate valid ranges for sliders
+slider_ranges <- list(
+  mv = list(
+    max = round(max(data$MV_avg, na.rm = TRUE)),
+    value = round(mean(data$MV_avg, na.rm = TRUE))
+  ),
+  lp = list(
+    max = round(max(data$LP_avg, na.rm = TRUE)),
+    value = round(mean(data$LP_avg, na.rm = TRUE))
+  ),
+  sb = list(
+    max = round(max(data$SB_avg, na.rm = TRUE)),
+    value = round(mean(data$SB_avg, na.rm = TRUE))
+  ),
+  st = list(
+    max = round(max(data$avST, na.rm = TRUE)),
+    value = round(mean(data$avST, na.rm = TRUE))
+  )
+)
+
 # Define a mapping for variable names
 variable_labels <- list(
   "MV_avg" = "Average Daily MVPA (minutes)",
@@ -61,7 +81,7 @@ ui <- dashboardPage(
   dashboardSidebar(
     div(
       class = "sidebar-menu",
-      style = "display: flex; flex-direction: column; height: 95vh;", # Reduced from 100vh
+      style = "display: flex; flex-direction: column; height: 95vh;",
       div(
         style = "flex: 1; overflow-y: auto;",
         sidebarMenu(
@@ -69,17 +89,18 @@ ui <- dashboardPage(
           menuItem("Study Information", tabName = "study_info", icon = icon("info-circle")),
           menuItem("Demographics", tabName = "demographics", icon = icon("users")),
           menuItem("Distributions", tabName = "distributions", icon = icon("chart-bar")),
-          menuItem("Relationships", tabName = "relationships", icon = icon("project-diagram"))
+          menuItem("Relationships", tabName = "relationships", icon = icon("project-diagram")),
+          menuItem("Predict Active Adolescent's Sleep", tabName = "predict_sleep", icon = icon("bed"))
         )
       ),
       div(
-        style = "flex-shrink: 0; padding: 8px; margin-bottom: 10px; background-color: #004F27;",  # Added margin-bottom and reduced padding
+        style = "flex-shrink: 0; padding: 8px; margin-bottom: 10px; background-color: #004F27;",
         tags$img(src = "logo.jpg", style = "width: 100%; height: auto;")
       )
     )
   ),
   dashboardBody(
-    custom_css,  # Add custom CSS to the body
+    custom_css,
     tabItems(
       # Dashboard Information Tab
       tabItem(tabName = "dashboard_info",
@@ -198,6 +219,45 @@ Study Period: Participants in the study were enrolled for a 7-day data collectio
                     textOutput("rel_description")
                   )
                 ))
+      ),
+      
+      # Predict Your Sleep Tab
+      tabItem(tabName = "predict_sleep",
+              fluidRow(
+                box(
+                  width = 12,
+                  h4("Predict Your Sleep Duration"),
+                  p("Use the sliders below to input your daily activity levels and see the predicted sleep duration based on our regression model.")
+                )
+              ),
+              fluidRow(
+                box(
+                  width = 6,
+                  sliderInput("pred_mv", "Daily MVPA (minutes):",
+                              min = 0, 
+                              max = slider_ranges$mv$max,
+                              value = slider_ranges$mv$value),
+                  sliderInput("pred_lp", "Daily Light-Intensity PA (minutes):",
+                              min = 0, 
+                              max = slider_ranges$lp$max,
+                              value = slider_ranges$lp$value),
+                  sliderInput("pred_sb", "Daily Sedentary Time (minutes):",
+                              min = 0, 
+                              max = slider_ranges$sb$max,
+                              value = slider_ranges$sb$value),
+                  sliderInput("pred_st", "Daily Screen Time (minutes):",
+                              min = 0, 
+                              max = slider_ranges$st$max,
+                              value = slider_ranges$st$value)
+                ),
+                box(
+                  width = 6,
+                  plotlyOutput("prediction_plot"),
+                  textOutput("prediction_text"),
+                  tags$br(),
+                  textOutput("model_interpretation")
+                )
+              )
       )
     )
   )
@@ -229,9 +289,9 @@ server <- function(input, output) {
   
   # Distributions Plot
   output$dist_plot <- renderPlotly({
-    req(input$dist_var)  # Ensure input is available
+    req(input$dist_var)
     
-    var_label <- variable_labels[[input$dist_var]]  # Get label for selected variable
+    var_label <- variable_labels[[input$dist_var]]
     
     # Calculate normal distribution parameters
     mean_val <- mean(data[[input$dist_var]], na.rm = TRUE)
@@ -239,33 +299,29 @@ server <- function(input, output) {
     
     # Calculate the histogram first to get the scaling right
     hist_data <- hist(data[[input$dist_var]], plot = FALSE, breaks = seq(
-      0,  # Start at 0
+      0,
       max(data[[input$dist_var]], na.rm = TRUE),
       length.out = 30
     ))
     max_count <- max(hist_data$counts)
     
     # Create data for theoretical normal distribution
-    # Start at 0 and extend to mean + 4*sd
     x_range <- seq(0, mean_val + 4*sd_val, length.out = 100)
     normal_data <- data.frame(
       x = x_range,
       y = dnorm(x_range, mean = mean_val, sd = sd_val) * 
-        max_count / dnorm(mean_val, mean = mean_val, sd = sd_val)  # Scale to match histogram height
+        max_count / dnorm(mean_val, mean = mean_val, sd = sd_val)
     )
     
     p <- ggplot() +
-      # Add histogram of actual data
       geom_histogram(data = data, 
                      aes_string(x = input$dist_var, y = "..count.."),
                      binwidth = 10, fill = uo_colors$green, 
                      color = "black", alpha = 0.7) +
-      # Add theoretical normal distribution curve
       geom_line(data = normal_data, 
                 aes(x = x, y = y, 
-                    text = "This curve shows a theoretical normal distribution. It represents what we would expect to see if the variable were perfectly normally distributed in the population."),
+                    text = "This curve shows a theoretical normal distribution"),
                 color = uo_colors$yellow, size = 1.2) +
-      # Force x-axis to start at 0
       scale_x_continuous(limits = c(0, NA)) +
       labs(
         title = stringr::str_wrap(paste("Distribution of", var_label), width = 40), 
@@ -281,7 +337,7 @@ server <- function(input, output) {
       )
     
     ggplotly(p) %>% 
-      layout(showlegend = FALSE)  # Hide legend for cleaner look
+      layout(showlegend = FALSE)
   })
   
   # Distribution Description
@@ -376,6 +432,89 @@ server <- function(input, output) {
           "for the sample of 326 physically active adolescents. The association between these variables has a", 
           magnitude, direction, "association (r =", correlation, "). This association is", significant, 
           "at the p < 0.05 level.")
+  })
+  
+  # Sleep Prediction Model
+  sleep_model <- reactive({
+    lm(avperiod ~ MV_avg + LP_avg + SB_avg + avST, data = data)
+  })
+  
+  # Generate prediction plot
+  output$prediction_plot <- renderPlotly({
+    req(input$pred_mv, input$pred_lp, input$pred_sb, input$pred_st)
+    
+    model <- sleep_model()
+    
+    # Create prediction data
+    new_data <- data.frame(
+      MV_avg = input$pred_mv,
+      LP_avg = input$pred_lp,
+      SB_avg = input$pred_sb,
+      avST = input$pred_st
+    )
+    
+    # Get prediction and confidence interval
+    pred <- predict(model, newdata = new_data, interval = "confidence")
+    
+    # Create bar plot
+    p <- plot_ly() %>%
+      add_bars(x = "Predicted Sleep", y = pred[1],
+               marker = list(color = uo_colors$legacy_green),
+               error_y = list(
+                 type = "data",
+                 array = pred[3] - pred[1],
+                 arrayminus = pred[1] - pred[2],
+                 color = "#000000"
+               )) %>%
+      layout(
+        yaxis = list(title = "Minutes of Sleep",
+                     range = c(0, max(data$avperiod))),
+        showlegend = FALSE
+      )
+    
+    p
+  })
+  
+  # Generate prediction text
+  output$prediction_text <- renderText({
+    req(input$pred_mv, input$pred_lp, input$pred_sb, input$pred_st)
+    
+    model <- sleep_model()
+    
+    # Create prediction data
+    new_data <- data.frame(
+      MV_avg = input$pred_mv,
+      LP_avg = input$pred_lp,
+      SB_avg = input$pred_sb,
+      avST = input$pred_st
+    )
+    
+    # Get prediction and confidence interval
+    pred <- predict(model, newdata = new_data, interval = "confidence")
+    
+    paste0("Predicted sleep duration: ", round(pred[1]), " minutes (",
+           round(pred[1]/60, 1), " hours)\n",
+           "95% Confidence Interval: ", round(pred[2]), "-", round(pred[3]),
+           " minutes")
+  })
+  
+  # Generate model interpretation
+  output$model_interpretation <- renderText({
+    model <- sleep_model()
+    coef <- coef(model)
+    r2 <- summary(model)$r.squared
+    
+    interpretation <- paste0(
+      "Model Interpretation:\n",
+      "This prediction is based on a multiple regression model (R² = ", round(r2, 3), "). ",
+      "For every additional minute of:\n",
+      "- MVPA: ", round(coef["MV_avg"], 2), " minute change in sleep\n",
+      "- Light PA: ", round(coef["LP_avg"], 2), " minute change in sleep\n",
+      "- Sedentary time: ", round(coef["SB_avg"], 2), " minute change in sleep\n",
+      "- Screen time: ", round(coef["avST"], 2), " minute change in sleep"
+    )
+    
+    interpretation
   })
 }
 
