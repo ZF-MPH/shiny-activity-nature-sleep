@@ -226,8 +226,8 @@ Study Period: Participants in the study were enrolled for a 7-day data collectio
               fluidRow(
                 box(
                   width = 12,
-                  h4("Predict Your Sleep Duration"),
-                  p("Use the sliders below to input your daily activity levels and see the predicted sleep duration based on our regression model.")
+                  h4("Predict Your Active Adolescents Sleep Duration"),
+                  p("Use the sliders below to input your daily activity levels and see the predicted sleep duration based on our regression model. Note: The total minutes of the sliders cannot exceed 1440 minutes (total minutes in a day). However, sleep also occurs during that 24 hour (1440 minutes) period. So, make sure to account for that when inputing the information. Also, note that screen time and the other behaviors can cooccur (they can happen at the same time).")
                 )
               ),
               fluidRow(
@@ -235,25 +235,25 @@ Study Period: Participants in the study were enrolled for a 7-day data collectio
                   width = 6,
                   sliderInput("pred_mv", "Daily MVPA (minutes):",
                               min = 0, 
-                              max = slider_ranges$mv$max,
+                              max = 1440,
                               value = slider_ranges$mv$value),
                   sliderInput("pred_lp", "Daily Light-Intensity PA (minutes):",
                               min = 0, 
-                              max = slider_ranges$lp$max,
+                              max = 1440,
                               value = slider_ranges$lp$value),
                   sliderInput("pred_sb", "Daily Sedentary Time (minutes):",
                               min = 0, 
-                              max = slider_ranges$sb$max,
+                              max = 1440,
                               value = slider_ranges$sb$value),
                   sliderInput("pred_st", "Daily Screen Time (minutes):",
                               min = 0, 
-                              max = slider_ranges$st$max,
+                              max = 1440,
                               value = slider_ranges$st$value)
                 ),
                 box(
                   width = 6,
-                  plotlyOutput("prediction_plot"),
-                  textOutput("prediction_text"),
+                  htmlOutput("prediction_plot"),
+                  textOutput("total_minutes_display"),
                   tags$br(),
                   textOutput("model_interpretation")
                 )
@@ -264,7 +264,86 @@ Study Period: Participants in the study were enrolled for a 7-day data collectio
 )
 
 # Define Server
-server <- function(input, output) {
+server <- function(input, output, session) {
+  
+  # Initialize a reactive value to track last adjusted slider
+  rv <- reactiveValues(last_slider = NULL)
+  
+  # Function to calculate total minutes
+  calc_total <- function() {
+    return(input$pred_mv + input$pred_lp + input$pred_sb + input$pred_st)
+  }
+  
+  # Single observer for all sliders
+  observe({
+    # Set up isolate for each input to detect which one changed
+    mv_val <- isolate(input$pred_mv)
+    lp_val <- isolate(input$pred_lp)
+    sb_val <- isolate(input$pred_sb)
+    st_val <- isolate(input$pred_st)
+    
+    # Determine which slider was changed
+    changed_slider <- NULL
+    if (!is.null(input$pred_mv) && input$pred_mv != mv_val) changed_slider <- "pred_mv"
+    if (!is.null(input$pred_lp) && input$pred_lp != lp_val) changed_slider <- "pred_lp"
+    if (!is.null(input$pred_sb) && input$pred_sb != sb_val) changed_slider <- "pred_sb"
+    if (!is.null(input$pred_st) && input$pred_st != st_val) changed_slider <- "pred_st"
+    
+    # Store the last changed slider
+    if (!is.null(changed_slider)) {
+      rv$last_slider <- changed_slider
+    }
+    
+    # Get the total minutes
+    total <- calc_total()
+    
+    # If total exceeds 1440, adjust the other sliders
+    if (total > 1440) {
+      excess <- total - 1440
+      
+      # Create a list of sliders excluding the one that was just changed
+      other_sliders <- setdiff(c("pred_mv", "pred_lp", "pred_sb", "pred_st"), rv$last_slider)
+      
+      # Get the total of other sliders
+      other_total <- sum(sapply(other_sliders, function(s) input[[s]]))
+      
+      if (other_total > 0) {
+        # Calculate ratio to reduce other sliders
+        ratio <- (other_total - excess) / other_total
+        
+        # Update each slider proportionally
+        for (slider in other_sliders) {
+          new_val <- max(0, round(input[[slider]] * ratio))
+          updateSliderInput(session, slider, value = new_val)
+        }
+      } else {
+        # If other sliders are already at 0, cap the changed slider
+        updateSliderInput(session, rv$last_slider, value = 1440)
+      }
+    }
+  })
+  
+  # Initialize sliders to ensure total doesn't exceed 1440
+  observe({
+    # This will run once when the app starts
+    total <- calc_total()
+    if (total > 1440) {
+      # Calculate reduction ratio
+      ratio <- 1440 / total
+      
+      # Update all sliders proportionally
+      updateSliderInput(session, "pred_mv", value = round(input$pred_mv * ratio))
+      updateSliderInput(session, "pred_lp", value = round(input$pred_lp * ratio))
+      updateSliderInput(session, "pred_sb", value = round(input$pred_sb * ratio)) 
+      updateSliderInput(session, "pred_st", value = round(input$pred_st * ratio))
+    }
+  }, priority = 1000)  # High priority to ensure it runs first
+  
+  # Display total minutes
+  output$total_minutes_display <- renderText({
+    total <- calc_total()
+    paste0("Total minutes allocated: ", total, " out of 1440 minutes in a day")
+  })
   
   # Variable Descriptions Table
   output$variable_table <- renderDataTable({
@@ -359,14 +438,28 @@ server <- function(input, output) {
     
     demo_label <- variable_labels[[input$demo_var]]
     
-    p <- data %>%
+    # Get the data for the plot
+    plot_data <- data %>%
       count(!!sym(input$demo_var)) %>%
-      mutate(percentage = n / sum(n) * 100) %>%
-      ggplot(aes_string(x = input$demo_var, y = "n")) +
-      geom_bar(stat = "identity", fill = uo_colors$legacy_green, color = "black", alpha = 0.7) +
-      geom_text(aes(label = paste0(round(percentage, 1), "%")), 
-                position = position_stack(vjust = 0.5),
-                color = "white", size = 4) +
+      mutate(percentage = n / sum(n) * 100)
+    
+    # Get the number of categories
+    n_categories <- nrow(plot_data)
+    
+    # Assign colors from your uo_colors list - cycle through if needed
+    color_vector <- c(uo_colors$green, uo_colors$yellow, uo_colors$legacy_green, 
+                      uo_colors$grass_green, uo_colors$lime_green, uo_colors$chartreuse, 
+                      uo_colors$dark_blue, uo_colors$light_blue)
+    
+    # Make sure we only use as many colors as there are categories
+    colors_to_use <- color_vector[1:min(n_categories, length(color_vector))]
+    
+    p <- ggplot(plot_data, aes_string(x = input$demo_var, y = "n")) +
+      geom_bar(stat = "identity", fill = colors_to_use, color = "black", alpha = 0.7) +
+      geom_text(aes(label = paste0(round(percentage, 1), "%"),
+                    y = ifelse(percentage < 5, n + 5, n/2)),
+                color = ifelse(plot_data$percentage < 5, "black", "black"),
+                size = 4) +
       labs(
         title = stringr::str_wrap(paste("Distribution of", demo_label), width = 40),
         x = stringr::str_wrap(demo_label, width = 40),
@@ -378,7 +471,7 @@ server <- function(input, output) {
         axis.title.x = element_text(size = 10, margin = margin(t = 10)),
         axis.title.y = element_text(size = 10, margin = margin(r = 10)),
         plot.margin = margin(t = 20, r = 20, b = 20, l = 20),
-        axis.text.x = element_text(angle = 45, hjust = 1)
+        axis.text.x = element_text(angle = 0, hjust = 0.5)
       )
     
     ggplotly(p) %>% 
@@ -440,7 +533,7 @@ server <- function(input, output) {
   })
   
   # Generate prediction plot
-  output$prediction_plot <- renderPlotly({
+  output$prediction_plot <- renderUI({
     req(input$pred_mv, input$pred_lp, input$pred_sb, input$pred_st)
     
     model <- sleep_model()
@@ -456,23 +549,20 @@ server <- function(input, output) {
     # Get prediction and confidence interval
     pred <- predict(model, newdata = new_data, interval = "confidence")
     
-    # Create bar plot
-    p <- plot_ly() %>%
-      add_bars(x = "Predicted Sleep", y = pred[1],
-               marker = list(color = uo_colors$legacy_green),
-               error_y = list(
-                 type = "data",
-                 array = pred[3] - pred[1],
-                 arrayminus = pred[1] - pred[2],
-                 color = "#000000"
-               )) %>%
-      layout(
-        yaxis = list(title = "Minutes of Sleep",
-                     range = c(0, max(data$avperiod))),
-        showlegend = FALSE
-      )
+    #calculate hours and minutes
+    total_minutes <- round(pred[1])
+    hours <- floor(total_minutes/60)
+    minutes <- total_minutes %% 60
+    time_format <- sprintf("%d hours and %d minutes", hours, minutes)
     
-    p
+    # Create formatted HTML text
+    HTML(paste0("<div style='font-size: 16px; font-weight: bold; color: black; padding: 20px; height: 300px;'>",
+                "Based on the daily average minutes of MVPA, light-intensity physical activity, sedentary time, and screen time, ",
+                "your active adolescent would be expected to sleep approximately ", total_minutes, " minutes, or ", time_format, ". ",
+                "In general, the more balanced an active adolescent's movement behaviors are (for example = moderate to high amounts of MVPA ",
+                "(recommended to not exceed 300 minutes), more light intensity physical activity than sedentary time, and lower screen time ",
+                "(recommended to not exceed 120 minutes), the better sleep duration outcomes (recommended between 8 and 10 hours per night).",
+                "</div>"))
   })
   
   # Generate prediction text
