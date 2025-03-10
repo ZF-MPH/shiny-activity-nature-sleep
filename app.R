@@ -87,6 +87,7 @@ ui <- dashboardPage(
         sidebarMenu(
           menuItem("Dashboard Information", tabName = "dashboard_info", icon = icon("info-circle")),
           menuItem("Study Information", tabName = "study_info", icon = icon("info-circle")),
+          menuItem("Tab Information", tabName = "tab_info", icon = icon("table")),
           menuItem("Demographics", tabName = "demographics", icon = icon("users")),
           menuItem("Distributions", tabName = "distributions", icon = icon("chart-bar")),
           menuItem("Relationships", tabName = "relationships", icon = icon("project-diagram")),
@@ -136,6 +137,47 @@ Study Period: Participants in the study were enrolled for a 7-day data collectio
                   width = 12,
                   h4("Variable Descriptions"),
                   dataTableOutput("variable_table")
+                )
+              )
+      ),
+      
+      # Tab Information Tab (NEW)
+      tabItem(tabName = "tab_info",
+              fluidRow(
+                box(
+                  width = 12,
+                  h4("Dashboard Tab Descriptions"),
+                  tags$table(
+                    class = "table table-striped",
+                    tags$thead(
+                      tags$tr(
+                        tags$th("Tab Name"),
+                        tags$th("Description")
+                      )
+                    ),
+                    tags$tbody(
+                      tags$tr(
+                        tags$td(tags$strong("Study Information")),
+                        tags$td("This tab provided a summary of the NatureDose Teen Research Study – the study being discussed and data being presented in this dashboard. In this tab, you will learn about the population of interest, the goal of the study, the study process, and information about what was used to obtain data for each variable mentioned. Additionally, at the bottom of this tab, you will see a table of Variable Descriptions. This table will show you the variable names, an informal description of that variable, and what that variable was measured by (e.g., an accelerometer device, phone application, surveys, etc.).")
+                      ),
+                      tags$tr(
+                        tags$td(tags$strong("Demographics")),
+                        tags$td("In this tab, you will be able to select from a list of categorical variables that are used to describe (characterize) the sample of adolescents from the NatureDose Teen Research Study based upon personal characteristics (demographics). In this dashboard, the demographic variables available to explore are: Combined Race/Ethnicity; Gender (identity); Age (years); and Free or Reduced Priced Lunch (FRPL) eligibility. When you select one of these variables (at the top), the bar graph below will update and be displayed for the variable you selected. If you hover your cursor over the bar, it will also show you the total number of participants in the sample that fall into that category (signified by n = [number], where \"n\" refers to the \"count\").")
+                      ),
+                      tags$tr(
+                        tags$td(tags$strong("Distributions")),
+                        tags$td("In this tab, you will be able to select from a list of continuous variables that are used to describe (characterize) the sample of adolescents from the NatureDose Teen Research Study based upon their activity and movement behaviors (e.g., physical activity [intensities], sedentary behavior, screen time, nature dose, and nighttime sleep duration). When you select one of these variables (at the top), the histogram (plot) below will update and display the distribution of data for that variable. Looking at distributions tells you how spread out the values are, not just the average. Understanding the shape (distribution) of the data helps you make sense of the information and potentially draw more accurate conclusions about what you are seeing. Also, in this tab, below the plot, there will be a text output indicating the average for the selected variable, as well as the minimum and maximum values in the data.")
+                      ),
+                      tags$tr(
+                        tags$td(tags$strong("Relationships")),
+                        tags$td("In this tab, you will be able to select TWO variables from the list of continuous variables (shown in the distributions tab). When you \"Select X Variable\" you are selecting the \"independent variable\", or the variable you think would \"lead to\" or \"influence\" the variable you select for the Y variable. When you \"Select Y Variable\" you are selecting the \"dependent variable\", or the variable you think would \"come as a result of\" or \"be influenced by\" your selected X variable. The plot that you see will show the linear relationship between your X and Y variables. When the line is going down (higher on the left side and lower on the right side), this indicates a negative relationship; when the line is going up (lower on the left side and higher on the right side), this indicates a positive relationship. Interpretation of these relationships is provided just below the plot output.")
+                      ),
+                      tags$tr(
+                        tags$td(tags$strong("Predict Active Adolescent's Sleep")),
+                        tags$td("This tab is interactive and allows you to provide your own input to see how much nighttime sleep duration (on average, across a given week during the summer) you could expect for a physically active adolescent to get based upon how many minutes of average daily (from across a typical week during the summer) MVPA, light-intensity physical activity, sedentary time, and phone-based screen time. The value of average nighttime sleep comes from a multiple regression (similar to the linear regression in the Relationships tab) where nighttime sleep duration was the dependent variable (outcome) and MVPA, light-intensity physical activity, sedentary time, and phone-based screen time were the independent variables (predictors OF sleep duration).")
+                      )
+                    )
+                  )
                 )
               )
       ),
